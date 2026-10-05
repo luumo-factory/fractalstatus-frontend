@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fractal monitor – reference demo</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --surface-0:#1c1c1e;--surface-1:#252528;
+  --text-primary:#f2f2f2;--text-secondary:#a8a8ad;--text-muted:#77777c;
+  --radius:6px;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: light){
+  :root{--surface-0:#f4f4f5;--surface-1:#ffffff;--text-primary:#1a1a1a;--text-secondary:#5a5a60;--text-muted:#8a8a90}
+}
+body{margin:0;padding:24px;background:var(--surface-0);color:var(--text-primary)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:0 0 .75rem;font-size:13px;color:var(--text-secondary)}
+.ctl label{display:flex;align-items:center;gap:8px}
+#crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;margin:0 0 .75rem;min-height:24px}
+.cr{cursor:pointer;padding:2px 8px;border-radius:var(--radius);color:#fff}
+#board{position:relative;margin-bottom:.5rem}
+#board>div{position:absolute;box-sizing:border-box}
+.tile{cursor:pointer;padding:6px 7px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation;border-radius:4px;color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 0 0 1px rgba(255,255,255,.06)}
+.tile:hover{outline:2px solid var(--text-primary);outline-offset:1px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;line-height:1;color:rgba(255,255,255,.9)}
+.nm{font-size:11px;line-height:1.3;color:rgba(255,255,255,.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big .nm{font-size:12px}
+.met{font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big .met{font-size:22px}
+.u{font-size:11px;font-weight:400;color:rgba(255,255,255,.75)}
+.gn{font-size:11px;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs{font-size:11px;line-height:1.3;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.press{transition:transform .5s ease-in!important;transform:scale(.9)!important}
+.frostIn{animation:frost .32s ease-out}
+@keyframes frost{from{background:transparent;backdrop-filter:blur(0);-webkit-backdrop-filter:blur(0)}}
+.thaw{animation:thaw .22s ease-in forwards}
+@keyframes thaw{to{background:transparent;backdrop-filter:blur(0);-webkit-backdrop-filter:blur(0)}}
+</style>
+</head>
+<body>
+<h2 class="sr-only">Fractal monitoring board: folder groups open as frosted overlays, explode in place, and collapse back.</h2>
+<div class="ctl">
+<label>Columns <input type="range" id="cols" min="5" max="8" step="1" value="8" style="width:90px"><span id="colsv" style="min-width:12px;color:var(--text-primary)">8</span></label>
+<span>Click a folder to open it. Long press a folder to explode it. Click an entity to cycle its status.</span>
+</div>
+<div id="crumbs"></div>
+<div id="board"></div>
+<script>
+// ---- Grid geometry (px). Every tile sits on a super grid of pitch E+G.
+const E=68,G=12,PITCH=E+G,M=8,O=6,DUR=230;
+
+// ---- Palette in OKLCH [lightness, chroma, hue], lightness matched across statuses.
+const P={ok:[0.56,0.13,152],warn:[0.63,0.14,68],crit:[0.55,0.17,25],explode:[0.49,0.06,245],collapse:[0.47,0.06,305]};
+const col=(s,d=0)=>{const[l,c,h]=P[s];return 'oklch('+(l+d).toFixed(3)+' '+c+' '+h+')'};
+const grad=s=>'linear-gradient(180deg,'+col(s,.04)+','+col(s,-.03)+')';
+const R={ok:0,warn:1,crit:2};
+
+// ---- Sample tree. Leaves have {s: status, m: metric, u: unit}; groups have {c: children, ex: exploded}.
+const T=(n,i,m,u)=>({n,i,m,u,s:'ok'}),Gr=(n,i,c)=>({n,i,c});
+const H200=n=>T(n,'ti-world','200','HTTP');
+const tree=Gr('Home','ti-home',[
+Gr('Servers','ti-server',[
+Gr('Proxmox','ti-server-2',[T('pve-01','ti-device-desktop','0.21','ms'),T('pve-02','ti-device-desktop','0.35','ms'),T('pve-03','ti-device-desktop','0.63','ms')]),
+Gr('VMs','ti-stack-2',[T('home-assistant','ti-home','0.31','ms'),T('litellm','ti-robot','0.16','ms'),T('automation','ti-sitemap','0.19','ms'),T('fuxa','ti-gauge','0.37','ms'),T('pi-hole','ti-shield','0.21','ms'),T('smart-home','ti-bulb','0.24','ms'),T('debian-misc','ti-box','0.67','ms'),T('personal-assistant','ti-robot','0.58','ms'),T('unifi-network','ti-wifi','0.56','ms')])]),
+T('Gateway','ti-router','0.13','ms'),
+Gr('Web','ti-world',[
+Gr('Luumo','ti-world',[H200('luumo.capital'),H200('luumo.ai'),H200('global.luumo.io')]),
+H200('mind-the-gap'),H200('curiousmentality.net'),H200('tim.creswick.uk')])]);
+
+const board=document.getElementById('board');
+let stack=[],busy=false;
+const px=c=>M+c*PITCH,span=n=>n*PITCH-G;
+
+// Item size in cells: unexploded group = 2x2, everything else = 1x1.
+const isz=it=>(it.k.c&&!it.rem&&!it.xp)?2:1;
+
+// Status rollup: a group's status is its worst descendant.
+function worst(n){if(!n.c)return n.s;return n.c.map(worst).reduce((a,b)=>R[b]>R[a]?b:a,'ok')}
+function leaves(n){return n.c?n.c.flatMap(leaves):[n]}
+
+// Flatten a group's children for display. An exploded child group becomes a
+// remnant tile followed by its own (recursively flattened) children.
+// `chain` records which exploded groups an item came out of (used for collapse).
+function items(n,chain=[]){const out=[];for(const k of n.c){if(k.c&&k.ex){out.push({k,rem:true,chain});items(k,chain.concat(k.n)).forEach(i=>out.push(i))}else out.push({k,chain})}return out}
+
+// Skyline packer: places items in config order at the lowest available position, leftmost on ties.
+function pack(its,w){
+ const hs=new Array(w).fill(0),pos=[];
+ for(const it of its){const s=isz(it);if(s>w)return null;let bx=0,by=1e9;
+  for(let x=0;x+s<=w;x++){const y=Math.max(...hs.slice(x,x+s));if(y<by){by=y;bx=x}}
+  pos.push({...it,x:bx,y:by});for(let x=bx;x<bx+s;x++)hs[x]=by+s}
+ return {pos,w:Math.max(...pos.map(q=>q.x+isz(q))),h:Math.max(...hs)}}
+
+// Open-panel layout: the group's items plus a trailing Explode tile, packed at
+// whichever width gives the smallest, squarest block.
+function panel(node,cols){let best=null;const its=items(node).concat([{k:node,xp:true,chain:[]}]);
+ for(let w=1;w<=cols;w++){const p=pack(its,w);if(!p)continue;
+  const sc=p.w*p.h*10+Math.abs(p.w-p.h);if(!best||sc<best.sc){best=p;best.sc=sc}}
+ return best}
+
+// ---- FLIP animation helpers. Every tile has a stable data-key (context + id).
+const rectEl=e=>({l:parseFloat(e.style.left),t:parseFloat(e.style.top),w:parseFloat(e.style.width),h:parseFloat(e.style.height)});
+function capture(){const m={};for(const e of board.children)if(e.dataset.key)m[e.dataset.key]=rectEl(e);return m}
+function rectOf(key){for(const e of board.children)if(e.dataset.key===key)return rectEl(e);return null}
+function toRect(e,r){if(!r)return;const n=rectEl(e);e.style.transformOrigin='0 0';e.style.transition='transform '+DUR+'ms ease-in, opacity '+DUR+'ms ease-in';e.style.transform='translate('+(r.l-n.l)+'px,'+(r.t-n.t)+'px) scale('+(r.w/n.w)+','+(r.h/n.h)+')';e.style.opacity='0'}
+function flip(old,anim){let i=0;
+ for(const e of board.children){if(!e.dataset.key)continue;const nw=rectEl(e),o=old[e.dataset.key];let from=null,fade=false;
+  if(o){if(o.l!==nw.l||o.t!==nw.t||o.w!==nw.w||o.h!==nw.h)from=o}
+  else if(anim&&anim.rect&&e.dataset.ctx===anim.ctx){from=anim.rect;fade=true}
+  if(!from)continue;
+  e.style.transformOrigin='0 0';e.style.transition='none';
+  e.style.transform='translate('+(from.l-nw.l)+'px,'+(from.t-nw.t)+'px) scale('+(from.w/nw.w)+','+(from.h/nw.h)+')';
+  if(fade)e.style.opacity='0';
+  const d=fade&&anim.stagger?Math.min(i++,12)*22:0;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{e.style.transition='transform .32s cubic-bezier(.2,.8,.2,1) '+d+'ms, opacity .26s '+d+'ms';e.style.transform='';e.style.opacity=''}))}}
+
+// ---- Tile content
+function body(q){
+ const n=q.k,big=isz(q)===2,isz2=big?22:16;
+ if(q.xp)return '<div class="top"><i class="ti ti-arrows-maximize" aria-hidden="true" style="font-size:16px"></i></div><div><div class="gn">Explode</div><div class="gs">'+n.n+'</div></div>';
+ if(q.rem)return '<div class="top"><i class="ti '+n.i+'" aria-hidden="true" style="font-size:16px"></i><i class="ti ti-arrows-minimize" aria-hidden="true" style="font-size:14px"></i></div><div><div class="gn">'+n.n+'</div><div class="gs">Collapse</div></div>';
+ let m,u,right='';
+ if(n.c){const lv=leaves(n),b=lv.filter(l=>l.s!=='ok').length;m=b?String(b):String(lv.length);u=b?'of '+lv.length+' failing':'all ok';right='<i class="ti ti-folder" aria-hidden="true" style="font-size:14px"></i>'}
+ else if(n.s==='ok'){m=n.m;u=n.u}else{m=n.s==='warn'?'Slow':'Down';u=''}
+ return '<div class="top"><i class="ti '+n.i+'" aria-hidden="true" style="font-size:'+isz2+'px"></i>'+right+'</div><div><div class="nm">'+n.n+'</div><div class="met">'+m+(u?'<span class="u"> '+u+'</span>':'')+'</div></div>'}
+
+function tile(q,x,y,ctx){
+ const n=q.k,s=isz(q),st=q.xp?'explode':q.rem?'collapse':(n.c?worst(n):n.s);
+ const e=add('tile'+(s===2?' big':''),px(x),px(y),span(s),span(s),body(q));
+ e.style.background=grad(st);
+ e.dataset.key=ctx+':'+(q.rem?'r:':q.xp?'x:':'')+n.n;e.dataset.ctx=ctx;e.dataset.chain=q.chain.join('|');
+ e.title=q.xp?'Explode '+n.n:q.rem?'Collapse '+n.n:n.n;
+ if(q.rem)e.onclick=()=>collapse(n,ctx);
+ else if(q.xp)e.onclick=()=>{const i=+ctx.slice(1),st=stack[i];closeTo(i,()=>explode(st.node,st.pctx))};
+ else if(n.c){let t=null,longed=false;
+  const cancel=()=>{clearTimeout(t);e.classList.remove('press')};
+  e.onpointerdown=()=>{if(busy)return;longed=false;e.classList.add('press');t=setTimeout(()=>{longed=true;e.classList.remove('press');explode(n,ctx)},500)};
+  e.onpointerup=cancel;e.onpointerleave=cancel;e.onpointercancel=cancel;e.oncontextmenu=ev=>ev.preventDefault();
+  e.onclick=()=>{if(longed){longed=false;return}open(n,ctx,x,y)}}
+ else e.onclick=()=>cycle(n);
+ return e}
+
+// ---- Render: base board ('b' context) plus one frosted layer per open panel ('L0', 'L1', ...).
+function render(anim){
+ const old=capture();
+ const cols=+document.getElementById('cols').value;document.getElementById('colsv').textContent=cols;
+ const base=pack(items(tree),cols);
+ const lv=stack.map(s=>{const p=panel(s.node,cols);return {...s,p,x:Math.max(0,Math.min(s.ax,cols-p.w)),y:s.ay}});
+ const rows=Math.max(base.h,...lv.map(l=>l.y+l.p.h));
+ board.innerHTML='';
+ const W=px(cols)-G+M,H=px(rows)-G+M;board.style.width=W+'px';board.style.height=H+'px';
+ base.pos.forEach(q=>tile(q,q.x,q.y,'b'));
+ lv.forEach((l,i)=>{const ctx='L'+i;
+  const sc=add(anim&&anim.open===i?'frostIn':'',0,0,W,H,'');sc.dataset.lvl=i;
+  sc.style.background='color-mix(in srgb, var(--surface-0) 55%, transparent)';sc.style.backdropFilter=sc.style.webkitBackdropFilter='blur(3px)';sc.onclick=()=>closeTo(i);
+  const st=worst(l.node);
+  const f=add('',px(l.x)-O,px(l.y)-O,span(l.p.w)+2*O,span(l.p.h)+2*O,'');f.dataset.key=ctx+':F';f.dataset.ctx=ctx;
+  f.style.background='color-mix(in oklch, '+col(st)+' 14%, var(--surface-1))';f.style.border='2px solid '+col(st);f.style.borderRadius='7px';
+  l.p.pos.forEach(q=>tile(q,l.x+q.x,l.y+q.y,ctx))});
+ const cr=document.getElementById('crumbs');cr.innerHTML='';
+ [{node:tree}].concat(stack).forEach((s,i,a)=>{
+  const e=document.createElement('span');e.className='cr';e.textContent=s.node.n;
+  e.style.background=grad(worst(s.node));e.onclick=()=>closeTo(i);cr.appendChild(e);
+  if(i<a.length-1){const sp=document.createElement('i');sp.className='ti ti-chevron-right';sp.setAttribute('aria-hidden','true');sp.style.color='var(--text-muted)';cr.appendChild(sp)}});
+ flip(old,anim)}
+
+// ---- Actions
+function open(n,ctx,x,y){if(busy)return;const r=rectOf(ctx+':'+n.n);stack.push({node:n,ax:x,ay:y,pctx:ctx,orect:r});render({ctx:'L'+(stack.length-1),rect:r,open:stack.length-1})}
+function closeTo(i,after){if(busy)return;if(i>=stack.length){after&&after();return}busy=true;
+ for(const e of board.children){if(e.dataset.lvl!==undefined&&+e.dataset.lvl>=i)e.classList.add('thaw');
+  const ctx=e.dataset.ctx;if(ctx&&ctx[0]==='L'&&+ctx.slice(1)>=i)toRect(e,stack[+ctx.slice(1)].orect)}
+ setTimeout(()=>{stack=stack.slice(0,i);render(null);busy=false;after&&after()},DUR)}
+function explode(g,ctx){if(busy)return;const r=rectOf(ctx+':'+g.n);g.ex=true;render({ctx,rect:r,stagger:true})}
+function collapse(g,ctx){if(busy)return;busy=true;const r=rectOf(ctx+':r:'+g.n);
+ for(const e of board.children)if(e.dataset.ctx===ctx&&(e.dataset.chain||'').split('|').includes(g.n))toRect(e,r);
+ setTimeout(()=>{g.ex=false;render({ctx,rect:r});busy=false},DUR)}
+function cycle(t){if(busy)return;t.s=t.s==='ok'?'warn':t.s==='warn'?'crit':'ok';render(null)}
+function add(cls,x,y,w,h,html){const e=document.createElement('div');e.className=cls;Object.assign(e.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'});e.innerHTML=html;board.appendChild(e);return e}
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&stack.length)closeTo(stack.length-1)});
+document.getElementById('cols').addEventListener('input',()=>render(null));
+render(null);
+</script>
+</body>
+</html>
